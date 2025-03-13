@@ -40,6 +40,8 @@ from random import uniform, choice, random, randint
 from time import sleep
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import tempfile
+from fake_useragent import UserAgent
 
 
 def create_proxy_folder(proxy, folder_name):
@@ -121,8 +123,14 @@ def get_driver(background, viewports, agent, auth_required, path, proxy, proxy_t
     options.add_argument("--disable-notifications")
     options.add_argument("--disable-popup-blocking")
     
+    # Create a unique user data directory
+    user_data_dir = tempfile.mkdtemp()
+    options.add_argument(f'--user-data-dir={user_data_dir}')
+    
     if agent:
-        options.add_argument(f"--user-agent={agent}")
+        options.add_argument(f'--user-agent={agent}')
+    else:
+        options.add_argument(f'--user-agent={UserAgent().random}')
     
     if auth_required:
         create_proxy_folder(proxy, proxy_folder)
@@ -174,7 +182,7 @@ def get_driver(background, viewports, agent, auth_required, path, proxy, proxy_t
             };
         """)
         
-        return driver
+        return driver, user_data_dir
         
     except Exception as e:
         print(f"Error creating undetected driver: {str(e)}")
