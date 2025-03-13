@@ -32,6 +32,15 @@ FINGERPRINT = os.path.join('extension', 'fingerprint_defender.zip')
 CUSTOM_EXTENSIONS = glob(os.path.join('extension', 'custom_extension', '*.zip')) + \
     glob(os.path.join('extension', 'custom_extension', '*.crx'))
 
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import WebDriverException
+from random import uniform, choice, random, randint
+from time import sleep
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
 
 def create_proxy_folder(proxy, folder_name):
     proxy = proxy.replace('@', ':')
@@ -94,68 +103,190 @@ chrome.webRequest.onAuthRequired.addListener(
 
 
 def get_driver(background, viewports, agent, auth_required, path, proxy, proxy_type, proxy_folder):
-    options = webdriver.ChromeOptions()
-    options.headless = background
+    options = uc.ChromeOptions()
+    
+    if background:
+        options.add_argument('--headless=new')
+    
     if viewports:
-        options.add_argument(f"--window-size={choice(viewports)}")
-    options.add_argument("--log-level=3")
-    options.add_experimental_option(
-        "excludeSwitches", ["enable-automation", "enable-logging"])
-    options.add_experimental_option('useAutomationExtension', False)
-    prefs = {"intl.accept_languages": 'en_US,en',
-             "credentials_enable_service": False,
-             "profile.password_manager_enabled": False,
-             "profile.default_content_setting_values.notifications": 2,
-             "download_restrictions": 3}
-    options.add_experimental_option("prefs", prefs)
-    options.add_experimental_option('extensionLoadTimeout', 120000)
-    options.add_argument(f"user-agent={agent}")
-    options.add_argument("--mute-audio")
+        viewport = choice(viewports)
+        width, height = map(int, viewport.split(','))
+        width = width + randint(-50, 50)
+        height = int(height * (width / int(viewport.split(',')[0])))
+        options.add_argument(f"--window-size={width},{height}")
+    
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-features=UserAgentClientHint')
-    options.add_argument("--disable-web-security")
-    webdriver.DesiredCapabilities.CHROME['loggingPrefs'] = {
-        'driver': 'OFF', 'server': 'OFF', 'browser': 'OFF'}
-
-    if not background:
-        options.add_extension(WEBRTC)
-        options.add_extension(FINGERPRINT)
-        options.add_extension(ACTIVE)
-
-        if CUSTOM_EXTENSIONS:
-            for extension in CUSTOM_EXTENSIONS:
-                options.add_extension(extension)
-
+    options.add_argument('--disable-gpu')
+    options.add_argument("--disable-notifications")
+    options.add_argument("--disable-popup-blocking")
+    
+    if agent:
+        options.add_argument(f"--user-agent={agent}")
+    
     if auth_required:
         create_proxy_folder(proxy, proxy_folder)
         options.add_argument(f"--load-extension={proxy_folder}")
     else:
         options.add_argument(f'--proxy-server={proxy_type}://{proxy}')
+    
+    try:
+        driver = uc.Chrome(
+            options=options,
+            driver_executable_path=path,
+            use_subprocess=True,
+            headless=background,  
+            version_main=None  
+        )
+        
+        driver.set_page_load_timeout(30)
+        
+        driver.execute_script("""
+            const originalGetContext = HTMLCanvasElement.prototype.getContext;
+            HTMLCanvasElement.prototype.getContext = function() {
+                const context = originalGetContext.apply(this, arguments);
+                if (context && arguments[0] === '2d') {
+                    const originalGetImageData = context.getImageData;
+                    context.getImageData = function() {
+                        const imageData = originalGetImageData.apply(this, arguments);
+                        const noise = Math.random() * 0.01;
+                        for (let i = 0; i < imageData.data.length; i += 4) {
+                            imageData.data[i] = imageData.data[i] + noise;
+                        }
+                        return imageData;
+                    };
+                }
+                return context;
+            };
+            
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+            
+            window.chrome = {
+                runtime: {}
+            };
+        """)
+        
+        return driver
+        
+    except Exception as e:
+        print(f"Error creating undetected driver: {str(e)}")
+        raise
 
-    service = Service(executable_path=path)
-    driver = webdriver.Chrome(service=service, options=options)
 
-    return driver
+def type_keyword(driver, keyword, retry=False):
+    if retry:
+        for _ in range(30):
+            try:
+                search_box = driver.find_element(By.CSS_SELECTOR, 'input#search')
+                driver.execute_script("""
+                    function simulateMouseMovement(element) {
+                        const rect = element.getBoundingClientRect();
+                        const x = rect.left + rect.width/2;
+                        const y = rect.top + rect.height/2;
+                        
+                        const steps = 10;
+                        const stepX = (x - Math.random() * window.innerWidth) / steps;
+                        const stepY = (y - Math.random() * window.innerHeight) / steps;
+                        
+                        for(let i = 0; i < steps; i++) {
+                            const currentX = Math.random() * window.innerWidth;
+                            const currentY = Math.random() * window.innerHeight;
+                            const event = new MouseEvent('mousemove', {
+                                view: window,
+                                bubbles: true,
+                                cancelable: true,
+                                clientX: currentX,
+                                clientY: currentY
+                            });
+                            document.dispatchEvent(event);
+                        }
+                    }
+                    simulateMouseMovement(arguments[0]);
+                """, search_box)
+                search_box.click()
+                break
+            except WebDriverException:
+                sleep(uniform(2, 4))  
+
+    input_keyword = driver.find_element(By.CSS_SELECTOR, 'input#search')
+    input_keyword.clear()
+    
+    for letter in keyword:
+        input_keyword.send_keys(letter)
+        sleep(uniform(0.1, 0.4))  
+        if random() < 0.05:  
+            typo = choice(keyword)
+            input_keyword.send_keys(typo)
+            sleep(uniform(0.5, 1.0))  
+            input_keyword.send_keys(Keys.BACKSPACE)
+            sleep(uniform(0.2, 0.5))
+            input_keyword.send_keys(letter)  
+
+    sleep(uniform(0.5, 2.0))
+
+    method = randint(1, 3)
+    if method == 1:
+        input_keyword.send_keys(Keys.ENTER)
+    elif method == 2:
+        icon = driver.find_element(By.XPATH, '//button[@id="search-icon-legacy"]')
+        ensure_click(driver, icon)
+    else:
+        driver.execute_script("""
+            const icon = document.querySelector('#search-icon-legacy');
+            if (icon) {
+                simulateMouseMovement(icon);
+            }
+        """)
+        icon = driver.find_element(By.XPATH, '//button[@id="search-icon-legacy"]')
+        ensure_click(driver, icon)
 
 
 def play_video(driver):
+    sleep(uniform(1, 3))
+    
     try:
-        driver.find_element(By.CSS_SELECTOR, '[title^="Pause (k)"]')
-    except WebDriverException:
         try:
-            driver.find_element(
-                By.CSS_SELECTOR, 'button.ytp-large-play-button.ytp-button').send_keys(Keys.ENTER)
+            pause_button = driver.find_element(By.CSS_SELECTOR, '[title^="Pause (k)"]')
+            if random() < 0.2:  
+                pause_button.click()
+                sleep(uniform(2, 5))
+                driver.find_element(By.CSS_SELECTOR, '[title^="Play (k)"]').click()
         except WebDriverException:
             try:
-                driver.find_element(
-                    By.CSS_SELECTOR, '[title^="Play (k)"]').click()
+                play_button = driver.find_element(By.CSS_SELECTOR, 'button.ytp-large-play-button.ytp-button')
+                driver.execute_script("arguments[0].scrollIntoView(true);", play_button)
+                sleep(uniform(0.5, 1.5))
+                play_button.send_keys(Keys.ENTER)
             except WebDriverException:
                 try:
-                    driver.execute_script(
-                        "document.querySelector('button.ytp-play-button.ytp-button').click()")
+                    play_button = driver.find_element(By.CSS_SELECTOR, '[title^="Play (k)"]')
+                    driver.execute_script("arguments[0].scrollIntoView(true);", play_button)
+                    sleep(uniform(0.3, 1.0))
+                    play_button.click()
                 except WebDriverException:
-                    pass
+                    driver.execute_script(
+                        "document.querySelector('button.ytp-play-button.ytp-button').click()"
+                    )
+
+        if random() < 0.3:  
+            try:
+                scroll_amount = randint(100, 300)
+                driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
+                sleep(uniform(1, 3))
+                driver.execute_script(f"window.scrollBy(0, -{scroll_amount});")
+            except Exception:
+                pass
+
+    except WebDriverException:
+        pass
 
     skip_again(driver)
 
@@ -173,30 +304,6 @@ def play_music(driver):
                 'document.querySelector("#play-pause-button").click()')
 
     skip_again(driver)
-
-
-def type_keyword(driver, keyword, retry=False):
-    if retry:
-        for _ in range(30):
-            try:
-                driver.find_element(By.CSS_SELECTOR, 'input#search').click()
-                break
-            except WebDriverException:
-                sleep(3)
-
-    input_keyword = driver.find_element(By.CSS_SELECTOR, 'input#search')
-    input_keyword.clear()
-    for letter in keyword:
-        input_keyword.send_keys(letter)
-        sleep(uniform(.1, .4))
-
-    method = randint(1, 2)
-    if method == 1:
-        input_keyword.send_keys(Keys.ENTER)
-    else:
-        icon = driver.find_element(
-            By.XPATH, '//button[@id="search-icon-legacy"]')
-        ensure_click(driver, icon)
 
 
 def scroll_search(driver, video_title):

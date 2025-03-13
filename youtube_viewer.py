@@ -126,7 +126,7 @@ website.database = DATABASE
 def monkey_patch_exe(self):
     linect = 0
     replacement = self.gen_random_cdc()
-    replacement = f"  var key = '${replacement.decode()}_';\n".encode()
+    replacement = f"  var key = '{replacement.decode()}_';\n".encode()
     with io.open(self.executable_path, "r+b") as fh:
         for line in iter(lambda: fh.readline(), b""):
             if b"var key = " in line:
@@ -288,28 +288,43 @@ def update_view_count(position):
 
 def set_referer(position, url, method, driver):
     referer = choice(referers)
-    if referer:
-        if method == 2 and 't.co/' in referer:
-            driver.get(url)
-        else:
-            if 'search.yahoo.com' in referer:
-                driver.get('https://duckduckgo.com/')
-                driver.execute_script(
-                    "window.history.pushState('page2', 'Title', arguments[0]);", referer)
+    try:
+        if referer:
+            if method == 2 and 't.co/' in referer:
+                # Direct navigation with proper URL formatting
+                driver.execute_script(f"window.location.href = '{url}';")
             else:
-                driver.get(referer)
+                if 'search.yahoo.com' in referer:
+                    # Use execute_script for all URL navigation to avoid command line argument confusion
+                    driver.execute_script(f"window.location.href = 'https://duckduckgo.com/';")
+                    sleep(1)
+                    driver.execute_script(
+                        f"window.history.pushState('page2', 'Title', '{referer}');")
+                else:
+                    driver.execute_script(f"window.location.href = '{referer}';")
+                
+                sleep(1)
+                # Navigate to the target URL using JavaScript
+                driver.execute_script(f"window.location.href = '{url}';")
 
-            driver.execute_script(
-                "window.location.href = '{}';".format(url))
+            print(timestamp() + bcolors.OKBLUE +
+                f"Worker {position} | Referer used : {referer}" + bcolors.ENDC)
 
-        print(timestamp() + bcolors.OKBLUE +
-              f"Worker {position} | Referer used : {referer}" + bcolors.ENDC)
+            create_html(
+                {"#3b8eea": f"Worker {position} | Referer used : {referer}"})
 
-        create_html(
-            {"#3b8eea": f"Worker {position} | Referer used : {referer}"})
-
-    else:
-        driver.get(url)
+        else:
+            # Direct navigation using JavaScript to avoid command line argument confusion
+            driver.execute_script(f"window.location.href = '{url}';")
+    except Exception as e:
+        print(timestamp() + bcolors.FAIL +
+            f"Worker {position} | Navigation error: {str(e)}" + bcolors.ENDC)
+        # Fallback method
+        try:
+            driver.get(url)
+        except Exception:
+            print(timestamp() + bcolors.FAIL +
+                f"Worker {position} | Fallback navigation failed too" + bcolors.ENDC)
 
 
 def youtube_normal(method, keyword, video_title, driver, output):
@@ -366,33 +381,165 @@ def youtube_music(driver):
 
 def spoof_timezone_geolocation(proxy_type, proxy, driver):
     try:
-        proxy_dict = {
-            "http": f"{proxy_type}://{proxy}",
-                    "https": f"{proxy_type}://{proxy}",
-        }
+        # Advanced timezone and geolocation spoofing
+        timezone_scripts = """
+            const _Date = Date;
+            class ProxyDate extends _Date {
+                constructor(...args) {
+                    if (args.length === 0) {
+                        const randomOffset = Math.floor(Math.random() * 12) - 6;  // Random timezone offset
+                        const date = new _Date();
+                        date.setHours(date.getHours() + randomOffset);
+                        return date;
+                    }
+                    return new _Date(...args);
+                }
+                getTimezoneOffset() {
+                    return -new _Date().getTimezoneOffset() + (Math.floor(Math.random() * 100) - 50);
+                }
+            }
+            Date = ProxyDate;
+            
+            // Spoof hardware concurrency
+            Object.defineProperty(navigator, 'hardwareConcurrency', {
+                value: Math.floor(Math.random() * 8) + 2
+            });
+            
+            // Spoof device memory
+            Object.defineProperty(navigator, 'deviceMemory', {
+                value: [2,4,8,16][Math.floor(Math.random() * 4)]
+            });
+            
+            // Randomize screen properties
+            Object.defineProperty(window, 'screenX', {value: Math.floor(Math.random() * 1000)});
+            Object.defineProperty(window, 'screenY', {value: Math.floor(Math.random() * 1000)});
+            Object.defineProperty(screen, 'colorDepth', {value: [24, 32][Math.floor(Math.random() * 2)]});
+            
+            // Override common fingerprinting APIs
+            const originalQuery = window.navigator.mediaDevices?.enumerateDevices;
+            window.navigator.mediaDevices.enumerateDevices = () => 
+                originalQuery?.()
+                    .then(devices => devices
+                        .filter(() => Math.random() > 0.5)
+                        .map(device => ({
+                            ...device,
+                            label: '',
+                            deviceId: Math.random().toString(36).slice(2)
+                        })));
+            
+            // Canvas fingerprint protection
+            const originalGetContext = HTMLCanvasElement.prototype.getContext;
+            HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+                const context = originalGetContext.call(this, type, ...args);
+                if (context && type === '2d') {
+                    const originalFillText = context.fillText;
+                    context.fillText = function(...args) {
+                        args[0] = args[0].toString().split('').map(c => 
+                            Math.random() < 0.1 ? String.fromCharCode(c.charCodeAt(0) + 1) : c
+                        ).join('');
+                        return originalFillText.call(this, ...args);
+                    };
+                }
+                return context;
+            };
+        """
+        driver.execute_script(timezone_scripts)
+        
+        # Spoof geolocation
+        locations = [
+            {"latitude": 40.7128, "longitude": -74.0060},  // New York
+            {"latitude": 51.5074, "longitude": -0.1278},   // London
+            {"latitude": 48.8566, "longitude": 2.3522},    // Paris
+            {"latitude": 35.6762, "longitude": 139.6503},  // Tokyo
+            {"latitude": 37.7749, "longitude": -122.4194}, // San Francisco
+        ]
+        location = choice(locations)
+        
+        geolocation_script = f"""
+            navigator.geolocation.getCurrentPosition = function(success, error) {{
+                success({{
+                    coords: {{
+                        latitude: {location['latitude']},
+                        longitude: {location['longitude']},
+                        accuracy: {randint(20, 100)},
+                        altitude: null,
+                        altitudeAccuracy: null,
+                        heading: null,
+                        speed: null
+                    }},
+                    timestamp: Date.now()
+                }});
+            }};
+        """
+        driver.execute_script(geolocation_script)
+        
+        # Add random mouse movements and scrolls
+        driver.execute_script("""
+            function simulateHumanBehavior() {
+                const events = ['mousemove', 'scroll', 'click'];
+                setInterval(() => {
+                    if (Math.random() < 0.3) {  // 30% chance of event
+                        const event = events[Math.floor(Math.random() * events.length)];
+                        switch(event) {
+                            case 'mousemove':
+                                const mouseEvent = new MouseEvent('mousemove', {{
+                                    view: window,
+                                    bubbles: true,
+                                    cancelable: true,
+                                    clientX: Math.random() * window.innerWidth,
+                                    clientY: Math.random() * window.innerHeight
+                                }});
+                                document.dispatchEvent(mouseEvent);
+                                break;
+                            case 'scroll':
+                                window.scrollBy(0, (Math.random() - 0.5) * 100);
+                                break;
+                            case 'click':
+                                if (Math.random() < 0.1) {  // 10% chance of random click
+                                    const elements = document.querySelectorAll('a, button');
+                                    if (elements.length) {{
+                                        const randomElement = elements[Math.floor(Math.random() * elements.length)];
+                                        randomElement.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
+                                    }}
+                                }
+                                break;
+                        }}
+                    }}
+                }, Math.random() * 2000 + 1000);  // Random interval between 1-3 seconds
+            }
+            simulateHumanBehavior();
+        """)
+        
+    except Exception as e:
+        print(f'Error in spoofing timezone/geolocation: {str(e)}')
+    try:
+        proxy_dict = {{
+            "http": "{proxy_type}://{proxy}",
+            "https": "{proxy_type}://{proxy}",
+        }}
         resp = requests.get(
             "http://ip-api.com/json", proxies=proxy_dict, timeout=30)
 
         if resp.status_code == 200:
             location = resp.json()
-            tz_params = {'timezoneId': location['timezone']}
-            latlng_params = {
+            tz_params = {{'timezoneId': location['timezone']}}
+            latlng_params = {{
                 "latitude": location['lat'],
                 "longitude": location['lon'],
                 "accuracy": randint(20, 100)
-            }
+            }}
             info = f"ip-api.com | Lat : {location['lat']} | Lon : {location['lon']} | TZ: {location['timezone']}"
         else:
             raise RequestException
 
     except RequestException:
         location = fake.location_on_land()
-        tz_params = {'timezoneId': location[-1]}
-        latlng_params = {
+        tz_params = {{'timezoneId': location[-1]}}
+        latlng_params = {{
             "latitude": location[0],
             "longitude": location[1],
             "accuracy": randint(20, 100)
-        }
+        }}
         info = f"Random | Lat : {location[0]} | Lon : {location[1]} | TZ: {location[-1]}"
 
     try:
