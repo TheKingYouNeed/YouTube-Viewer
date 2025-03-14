@@ -25,11 +25,8 @@ import platform
 import shutil
 import subprocess
 import sys
-import os
 
-import undetected_chromedriver as uc
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+import undetected_chromedriver._compat as uc
 
 from .colors import *
 
@@ -108,51 +105,32 @@ def download_driver(patched_drivers):
 
         shutil.rmtree(patched_drivers, ignore_errors=True)
 
+    major_version = version.split('.')[0]
+
     try:
-        print(bcolors.WARNING + "Installing undetected Chrome driver..." + bcolors.ENDC)
+        # Try using webdriver manager first
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
         
-        # Get the ChromeDriver path using webdriver_manager
+        print(bcolors.WARNING + "Installing Chrome driver..." + bcolors.ENDC)
         driver_path = ChromeDriverManager().install()
-        
-        # Create an undetected-chromedriver instance to patch the driver
-        options = uc.ChromeOptions()
-        options.add_argument('--headless')  # Temporary for patching
-        
-        # Patch the driver
-        uc.Chrome(
-            driver_executable_path=driver_path,
-            options=options,
-            headless=True,
-            version_main=int(version.split('.')[0])  # Use major version
-        ).quit()
-        
-        # Copy the patched driver
         target_path = os.path.join(os.getcwd(), f'chromedriver{exe_name}')
-        if os.path.exists(driver_path):
-            shutil.copy(driver_path, target_path)
-            print(bcolors.OKGREEN + "Successfully installed undetected Chrome driver" + bcolors.ENDC)
-            
-            # Set permissions if on Linux/Mac
-            if osname in ['lin', 'mac']:
-                import stat
-                st = os.stat(target_path)
-                os.chmod(target_path, st.st_mode | stat.S_IEXEC)
-        else:
-            raise Exception("ChromeDriver not found after installation")
+        
+        # Copy the driver to the expected location
+        shutil.copy(driver_path, target_path)
+        print(bcolors.OKGREEN + "Successfully installed Chrome driver" + bcolors.ENDC)
+        
+        # Set permissions if on Linux/Mac
+        if osname in ['lin', 'mac']:
+            import stat
+            st = os.stat(target_path)
+            os.chmod(target_path, st.st_mode | stat.S_IEXEC)
             
     except Exception as e:
         print(bcolors.FAIL + f"Failed to install Chrome driver: {str(e)}" + bcolors.ENDC)
-        print(bcolors.WARNING + "Attempting alternative installation method..." + bcolors.ENDC)
-        
-        try:
-            # Try direct undetected_chromedriver installation
-            uc.install()
-            print(bcolors.OKGREEN + "Successfully installed Chrome driver using alternative method" + bcolors.ENDC)
-        except Exception as e2:
-            print(bcolors.FAIL + f"All installation methods failed: {str(e2)}" + bcolors.ENDC)
-            print(bcolors.WARNING + "Please download and install Chrome driver manually from:")
-            print("https://chromedriver.chromium.org/downloads" + bcolors.ENDC)
-            sys.exit(1)
+        print(bcolors.WARNING + "Please download and install Chrome driver manually from:")
+        print("https://chromedriver.chromium.org/downloads" + bcolors.ENDC)
+        sys.exit(1)
 
     return osname, exe_name
 

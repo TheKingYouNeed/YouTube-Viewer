@@ -126,7 +126,7 @@ website.database = DATABASE
 def monkey_patch_exe(self):
     linect = 0
     replacement = self.gen_random_cdc()
-    replacement = f"  var key = '{replacement.decode()}_';\n".encode()
+    replacement = f"  var key = '${replacement.decode()}_';\n".encode()
     with io.open(self.executable_path, "r+b") as fh:
         for line in iter(lambda: fh.readline(), b""):
             if b"var key = " in line:
@@ -288,43 +288,28 @@ def update_view_count(position):
 
 def set_referer(position, url, method, driver):
     referer = choice(referers)
-    try:
-        if referer:
-            if method == 2 and 't.co/' in referer:
-                # Direct navigation with proper URL formatting
-                driver.execute_script(f"window.location.href = '{url}';")
-            else:
-                if 'search.yahoo.com' in referer:
-                    # Use execute_script for all URL navigation to avoid command line argument confusion
-                    driver.execute_script(f"window.location.href = 'https://duckduckgo.com/';")
-                    sleep(1)
-                    driver.execute_script(
-                        f"window.history.pushState('page2', 'Title', '{referer}');")
-                else:
-                    driver.execute_script(f"window.location.href = '{referer}';")
-                
-                sleep(1)
-                # Navigate to the target URL using JavaScript
-                driver.execute_script(f"window.location.href = '{url}';")
-
-            print(timestamp() + bcolors.OKBLUE +
-                f"Worker {position} | Referer used : {referer}" + bcolors.ENDC)
-
-            create_html(
-                {"#3b8eea": f"Worker {position} | Referer used : {referer}"})
-
-        else:
-            # Direct navigation using JavaScript to avoid command line argument confusion
-            driver.execute_script(f"window.location.href = '{url}';")
-    except Exception as e:
-        print(timestamp() + bcolors.FAIL +
-            f"Worker {position} | Navigation error: {str(e)}" + bcolors.ENDC)
-        # Fallback method
-        try:
+    if referer:
+        if method == 2 and 't.co/' in referer:
             driver.get(url)
-        except Exception:
-            print(timestamp() + bcolors.FAIL +
-                f"Worker {position} | Fallback navigation failed too" + bcolors.ENDC)
+        else:
+            if 'search.yahoo.com' in referer:
+                driver.get('https://duckduckgo.com/')
+                driver.execute_script(
+                    "window.history.pushState('page2', 'Title', arguments[0]);", referer)
+            else:
+                driver.get(referer)
+
+            driver.execute_script(
+                "window.location.href = '{}';".format(url))
+
+        print(timestamp() + bcolors.OKBLUE +
+              f"Worker {position} | Referer used : {referer}" + bcolors.ENDC)
+
+        create_html(
+            {"#3b8eea": f"Worker {position} | Referer used : {referer}"})
+
+    else:
+        driver.get(url)
 
 
 def youtube_normal(method, keyword, video_title, driver, output):
@@ -451,17 +436,17 @@ def spoof_timezone_geolocation(proxy_type, proxy, driver):
             {"latitude": 51.5074, "longitude": -0.1278},   # London
             {"latitude": 48.8566, "longitude": 2.3522},    # Paris
             {"latitude": 35.6762, "longitude": 139.6503},  # Tokyo
-            {"latitude": 37.7749, "longitude": -122.4194}  # San Francisco
+            {"latitude": 37.7749, "longitude": -122.4194}, # San Francisco
         ]
         location = choice(locations)
         
         geolocation_script = f"""
-            navigator.geolocation.getCurrentPosition = function(success, error) {{
+            navigator.geolocation.getCurrentPosition = function(success, failure) {{
                 success({{
                     coords: {{
-                        latitude: {location["latitude"]},
-                        longitude: {location["longitude"]},
-                        accuracy: {randint(20, 100)},
+                        latitude: {location['latitude']} + (Math.random() * 0.01),
+                        longitude: {location['longitude']} + (Math.random() * 0.01),
+                        accuracy: Math.floor(Math.random() * 20) + 10,
                         altitude: null,
                         altitudeAccuracy: null,
                         heading: null,
@@ -482,14 +467,12 @@ def spoof_timezone_geolocation(proxy_type, proxy, driver):
                         const event = events[Math.floor(Math.random() * events.length)];
                         switch(event) {
                             case 'mousemove':
-                                const mouseEvent = new MouseEvent('mousemove', {{
-                                    view: window,
+                                const evt = new MouseEvent('mousemove', {
                                     bubbles: true,
-                                    cancelable: true,
                                     clientX: Math.random() * window.innerWidth,
                                     clientY: Math.random() * window.innerHeight
-                                }});
-                                document.dispatchEvent(mouseEvent);
+                                });
+                                document.dispatchEvent(evt);
                                 break;
                             case 'scroll':
                                 window.scrollBy(0, (Math.random() - 0.5) * 100);
@@ -497,14 +480,14 @@ def spoof_timezone_geolocation(proxy_type, proxy, driver):
                             case 'click':
                                 if (Math.random() < 0.1) {  // 10% chance of random click
                                     const elements = document.querySelectorAll('a, button');
-                                    if (elements.length) {{
+                                    if (elements.length) {
                                         const randomElement = elements[Math.floor(Math.random() * elements.length)];
-                                        randomElement.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
-                                    }}
+                                        randomElement.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
+                                    }
                                 }
                                 break;
-                        }}
-                    }}
+                        }
+                    }
                 }, Math.random() * 2000 + 1000);  // Random interval between 1-3 seconds
             }
             simulateHumanBehavior();
@@ -513,33 +496,33 @@ def spoof_timezone_geolocation(proxy_type, proxy, driver):
     except Exception as e:
         print(f'Error in spoofing timezone/geolocation: {str(e)}')
     try:
-        proxy_dict = {{
-            "http": "{proxy_type}://{proxy}",
-            "https": "{proxy_type}://{proxy}",
-        }}
+        proxy_dict = {
+            "http": f"{proxy_type}://{proxy}",
+                    "https": f"{proxy_type}://{proxy}",
+        }
         resp = requests.get(
             "http://ip-api.com/json", proxies=proxy_dict, timeout=30)
 
         if resp.status_code == 200:
             location = resp.json()
-            tz_params = {{'timezoneId': location['timezone']}}
-            latlng_params = {{
+            tz_params = {'timezoneId': location['timezone']}
+            latlng_params = {
                 "latitude": location['lat'],
                 "longitude": location['lon'],
                 "accuracy": randint(20, 100)
-            }}
+            }
             info = f"ip-api.com | Lat : {location['lat']} | Lon : {location['lon']} | TZ: {location['timezone']}"
         else:
             raise RequestException
 
     except RequestException:
         location = fake.location_on_land()
-        tz_params = {{'timezoneId': location[-1]}}
-        latlng_params = {{
+        tz_params = {'timezoneId': location[-1]}
+        latlng_params = {
             "latitude": location[0],
             "longitude": location[1],
             "accuracy": randint(20, 100)
-        }}
+        }
         info = f"Random | Lat : {location[0]} | Lon : {location[1]} | TZ: {location[-1]}"
 
     try:
@@ -731,10 +714,10 @@ def channel_or_endscreen(proxy, position, youtube, driver, view_stat, current_ur
                 raise Exception(
                     f"Error channel | {type(e).__name__} | {e.args[0] if e.args else ''}")
 
-            print(timestamp() + bcolors.OKBLUE + f"Worker {position} | " +
-                  bcolors.OKGREEN + f"{log}" + bcolors.ENDC)
+            print(timestamp() + bcolors.OKBLUE +
+                  f"Worker {position} | {log}" + bcolors.ENDC)
 
-            create_html({"#3b8eea": f"Worker {position} | " + bcolors.OKGREEN + f"{log}"})
+            create_html({"#3b8eea": f"Worker {position} | {log}"})
 
         elif option == 3:
             try:
@@ -743,11 +726,11 @@ def channel_or_endscreen(proxy, position, youtube, driver, view_stat, current_ur
                 raise Exception(
                     f"Error end screen | {type(e).__name__} | {e.args[0] if e.args else ''}")
 
-            print(timestamp() + bcolors.OKBLUE + f"Worker {position} | " +
-                  bcolors.OKGREEN + f"Video played from end screen : [{output}]" + bcolors.ENDC)
+            print(timestamp() + bcolors.OKBLUE +
+                  f"Worker {position} | Video played from end screen : [{output}]" + bcolors.ENDC)
 
             create_html(
-                {"#3b8eea": f"Worker {position} | " + bcolors.OKGREEN + f"Video played from end screen : [{output}]"})
+                {"#3b8eea": f"Worker {position} | Video played from end screen : [{output}]"})
 
         if option in [2, 3]:
             skip_initial_ad(driver, output, duration_dict)
@@ -788,44 +771,14 @@ def quit_driver(driver, data_dir):
 
 
 def main_viewer(proxy_type, proxy, position):
-    global driver_dict
-    global temp_folders
+    global width, viewports
+    driver = None
+    data_dir = None
 
     if cancel_all:
         raise KeyboardInterrupt
 
     try:
-        output = None
-        youtube = None
-        driver = None
-        view_stat = False
-        check_driver = True
-        user_data_dir = None
-        
-        if position == 0:
-            if os.path.isfile('update.py'):
-                check_update()
-                
-            if database:
-                try:
-                    database.ping(reconnect=True)
-                except:
-                    database.connect()
-                    
-            check_driver = False
-            
-        if check_driver:
-            if os.path.isfile('patched_drivers.txt'):
-                with open('patched_drivers.txt', 'r') as f:
-                    drivers = f.read().strip()
-                    
-                if len(drivers) == 0:
-                    patched_driver = None
-                else:
-                    patched_driver = choice(drivers.split('\n'))
-            else:
-                patched_driver = None
-        
         detect_file_change()
 
         checked[position] = None
@@ -878,29 +831,26 @@ def main_viewer(proxy_type, proxy, position):
             sleep(sleep_time)
             if cancel_all:
                 raise KeyboardInterrupt
-                
-            # Create proxy folder
-            proxy_folder = os.path.join('proxy_auth', proxy.replace('.', '').replace(':', ''))
-            
-            # Get driver and user data directory
-            driver, user_data_dir = get_driver(background, viewports, agent, auth_required,
-                          patched_driver, proxy, proxy_type, proxy_folder)
-            
+
+            driver = get_driver(background, viewports, agent, auth_required,
+                                patched_driver, proxy, proxy_type, proxy_folder)
+
             driver_dict[driver] = proxy_folder
-            
-            # Store user data directory for cleanup
-            temp_folders.append(user_data_dir)
-            
+
+            data_dir = driver.capabilities['chrome']['userDataDir']
+            temp_folders.append(data_dir)
+
             sleep(2)
-            
+
             info = spoof_timezone_geolocation(proxy_type, proxy, driver)
 
             isdetected = driver.execute_script('return navigator.webdriver')
+
             print(timestamp() + bcolors.OKBLUE + f"Worker {position} | " + bcolors.OKGREEN +
-                  f"WebDriver Detection : {isdetected} | {info}" + bcolors.ENDC)
+                  f"{proxy} | {proxy_type.upper()} | " + bcolors.OKCYAN + f"{info} | Detected? : {isdetected}" + bcolors.ENDC)
 
             create_html({"#3b8eea": f"Worker {position} | ",
-                        "#23d18b": f"WebDriver Detection : {isdetected} | {info}"})
+                        "#23d18b": f"{proxy.split('@')[-1]} | {proxy_type.upper()} | ", "#29b2d3": f"{info} | Detected? : {isdetected}"})
 
             if width == 0:
                 width = driver.execute_script('return screen.width')
@@ -912,53 +862,48 @@ def main_viewer(proxy_type, proxy, position):
 
             if 'consent' in driver.current_url:
                 print(timestamp() + bcolors.OKBLUE +
-                      f"Worker {position} | " + bcolors.OKGREEN + f"Bypassing consent..." + bcolors.ENDC)
+                      f"Worker {position} | Bypassing consent..." + bcolors.ENDC)
+
+                create_html(
+                    {"#3b8eea": f"Worker {position} | Bypassing consent..."})
+
                 bypass_consent(driver)
 
-            output = driver.find_element(By.TAG_NAME, 'html')
+            if video_title:
+                output = video_title
+            else:
+                output = driver.title[:-10]
 
             if youtube == 'Video':
-                view_stat = music_and_video(
+                view_stat = youtube_normal(
+                    method, keyword, video_title, driver, output)
+            else:
+                view_stat, output = youtube_music(driver)
+
+            if 'watching' in view_stat:
+                youtube_live(proxy, position, driver, output)
+
+            else:
+                current_url, current_channel = music_and_video(
                     proxy, position, youtube, driver, output, view_stat)
 
-                if view_stat == 'Viewed' or view_stat == 'Failed':
-                    pass
-                else:
-                    youtube = 'Music'
-                    print(timestamp() + bcolors.OKBLUE + f"Worker {position} | " +
-                          bcolors.OKGREEN + f"Switching to Music..." + bcolors.ENDC)
+            channel_or_endscreen(proxy, position, youtube,
+                                 driver, view_stat, current_url, current_channel)
 
-                    create_html(
-                        {"#3b8eea": f"Worker {position} | ", "#23d18b": f"Switching to Music..."})
-
-                    view_stat = music_and_video(
-                        proxy, position, youtube, driver, output, view_stat)
-
-            elif youtube == 'Music':
-                view_stat = music_and_video(
-                    proxy, position, youtube, driver, output, view_stat)
-
-            elif youtube == 'Live':
-                view_stat = youtube_live(proxy, position, driver, output)
-
-            if view_stat == 'Viewed':
-                update_view_count(position)
-
-            if driver and driver in driver_dict:
-                del driver_dict[driver]
+            if randint(1, 2) == 1:
                 try:
-                    driver.quit()
+                    driver.find_element(By.ID, 'movie_player').send_keys('k')
                 except WebDriverException:
                     pass
 
-            status = quit_driver(driver=driver, data_dir=user_data_dir)
+            status = quit_driver(driver=driver, data_dir=data_dir)
 
         except Exception as e:
-            status = quit_driver(driver=driver, data_dir=user_data_dir)
+            status = quit_driver(driver=driver, data_dir=data_dir)
 
             print(timestamp() + bcolors.FAIL +
                   f"Worker {position} | Line : {e.__traceback__.tb_lineno} | {type(e).__name__} | {e.args[0] if e.args else ''}" + bcolors.ENDC)
-            
+
             create_html(
                 {"#f14c4c": f"Worker {position} | Line : {e.__traceback__.tb_lineno} | {type(e).__name__} | {e.args[0] if e.args else ''}"})
 
@@ -978,6 +923,7 @@ def main_viewer(proxy_type, proxy, position):
 
         create_html(
             {"#f14c4c": f"Worker {position} | Line : {e.__traceback__.tb_lineno} | {type(e).__name__} | {e.args[0] if e.args else ''}"})
+
 
 def get_proxy_list():
     if filename:

@@ -66,9 +66,7 @@ def gather_proxy():
             print(bcolors.FAIL + f'Error gathering from {link}: {str(e)}' + bcolors.ENDC)
             continue
 
-    # Ensure all proxies are strings before converting to set
-    proxies = [str(p) for p in proxies if p]
-    proxies = list(set(proxies))  # Remove duplicates
+    proxies = list(set(filter(None, proxies)))  # Remove duplicates and empty entries
     shuffle(proxies)
 
     return proxies
@@ -104,9 +102,7 @@ def load_proxy(filename):
         except:
             continue
 
-    # Ensure all proxies are strings before converting to set
-    proxies = [str(p) for p in proxies if p]
-    proxies = list(set(proxies))  # Remove duplicates
+    proxies = list(set(filter(None, proxies)))  # Remove duplicates and empty entries
     shuffle(proxies)
 
     if not proxies:
@@ -134,14 +130,12 @@ def scrape_api(link):
         proxy = output.split('\n')
 
     for lines in proxy:
-        if lines.strip():  # Skip empty lines
-            if lines.count(':') == 3:
-                split = lines.split(':')
-                lines = f'{split[2]}:{split[-1]}@{split[0]}:{split[1]}'
-            proxies.append(lines)
+        if lines.count(':') == 3:
+            split = lines.split(':')
+            lines = f'{split[2]}:{split[-1]}@{split[0]}:{split[1]}'
+        proxies.append(lines)
 
-    # Ensure all proxies are strings before filtering
-    proxies = [str(p) for p in proxies if p]
+    proxies = list(filter(None, proxies))
     shuffle(proxies)
 
     return proxies
